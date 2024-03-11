@@ -26,13 +26,13 @@ def add_command_record(parser):
     record_parser = parser.add_parser(
         'record', 
         description='Records page fault statistics of the Python process(es)',
-        usage='%(prog)s [options] <file>',
+        usage='%(prog)s [options] <program> [args...]',
     )
 
     # required
     record_parser.add_argument(
-        'file', 
-        nargs=1, 
+        'program',
+        nargs='+',
         help='the Python program to be recorded',
         type=str,
     )
@@ -55,16 +55,34 @@ def add_command_record(parser):
     )
 
     # optional
+    # record_parser.add_argument(
+    #     '--precision',
+    #     nargs='?',
+    #     choices=range(1, 4),
+    #     default=2,
+    #     help='the precision level of tracing (the higher, the slower)',
+    #     type=int,
+    # )
+
+    # optional (gives a list)
     record_parser.add_argument(
-        '--precision',
-        nargs='?',
-        choices=range(1,4),
-        default=2,
-        help='the precision level of tracing (the higher, the slower)',
+        '--python',
+        nargs=1,
+        required=True,
+        help='the absolute path of Python executable used for tracing',
+        type=str,
+    )
+
+    # optional
+    record_parser.add_argument(
+        '--timeout',
+        nargs=1,
+        default=0,
+        help='the maximum wait time in seconds (0 or negative means no timeout)',
         type=int,
     )
 
-    record_parser.set_defaults(func=handle_record)
+    # record_parser.set_defaults(func=handle_record)
 
 
 def add_command_report(parser):
