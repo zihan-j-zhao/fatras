@@ -4,10 +4,11 @@ import time
 import signal
 import subprocess
 
-
 _ftrace_path = '/sys/kernel/tracing'
-_pid_file = '/tmp/fatras_pids.txt'
-_trace_file = '/tmp/fatras_trace.txt'
+_pid_file = '/tmp/fatras/pids.txt'
+_trace_file = '/tmp/fatras/trace.txt'
+
+_max_timeout = 60 * 60  # 1 hour
 
 
 def fwrite(path, text):
@@ -67,9 +68,10 @@ def setup_ftrace(ignore_children=False):
     reset_ftrace()
 
     # set up page fault configurations
+    fwrite(os.path.join(_ftrace_path, 'trace_clock'), 'mono')  # in microseconds
     fwrite(os.path.join(_ftrace_path, 'set_event'), 'page_fault_user')
-    fwrite(os.path.join(_ftrace_path, 'buffer_size_kb'), '100')
-    fwrite(os.path.join(_ftrace_path, 'options/event-fork'), '0' if ignore_children else '1')
+    fwrite(os.path.join(_ftrace_path, 'buffer_size_kb'), 100)
+    fwrite(os.path.join(_ftrace_path, 'options/event-fork'), int(not ignore_children))
     # fwrite(os.path.join(_ftrace_path, 'set_event_pid'), '???')  # set in start_sentinel
     # fwrite(os.path.join(_ftrace_path, 'tracing_on'), '1')  # set in start_sentinel
 
@@ -81,7 +83,7 @@ def read_ppid():
     about the pid file and this procedure.
     """
     if not os.path.exists(_pid_file):
-        raise FileNotFoundError('auto-generated pid file not found, try rerunning the command')
+        raise FileNotFoundError(f'{_pid_file} (auto-generated), rerun the command')
 
     with open(_pid_file, 'r') as f:
         pid = f.readline().strip('\n')
@@ -93,9 +95,9 @@ def read_ppid():
 def start_sentinel():
     """
     Waits for signals sent from the process responsible for executing the
-    program to enable or disable ftrace. Having enabled ftrace, this function
-    begins to read trace data from trace_pipe until the pipe is closed by
-    disabling ftrace.
+    program to enable or disable ftrace. While waiting, this function spins.
+    Having enabled ftrace, this function begins to read trace data from
+    trace_pipe until the pipe is closed by disabling ftrace.
     """
     _enabled = False
     _disabled = False
@@ -123,6 +125,7 @@ def start_sentinel():
 
     signal.signal(signal.SIGUSR1, enable_ftrace)
     signal.signal(signal.SIGUSR2, disable_ftrace)
+    open(_trace_file, 'w+').close()  # create an empty file or clear old data
 
     while not _enabled:
         time.sleep(.5)  # wait a bit
@@ -137,6 +140,15 @@ def start_sentinel():
                 f_to.write(data)
 
 
+def start_bootstrap(sentinel_pid, args):
+    """
+    Bootstraps the given program and runs it. This function waits until the
+    program completes so that data aggregation may begin.
+    """
+    command = [args.python[0], 'bootstrap.py', str(sentinel_pid), *args.program]
+    subprocess.check_call(command, timeout=max(args.timeout, 0) or _max_timeout)
+
+
 def handle_record(args):
     # 0. clear and then set up ftrace
     setup_ftrace(args.ignore_children)
@@ -147,15 +159,14 @@ def handle_record(args):
     # 2. fork a child proc to execute the given program
     pid = os.fork()
     if pid == 0:
-    #   2.1 Popen the program through bootstrap.py and custom CPython build
-    #     2.1.1 add tracing flags to various alloc functions, e.g. gc, raw
-    #     2.1.2 write data to files after allocation, e.g. realloc, new_arena
-    #     2.1.3 write based on the given precision level (prepare 3 builds for 3 levels)
-    #   2.2 patch necessary functions in bootstrap.py, e.g. os.fork
-    #   2.3 register line-level (0.01s) signals in bootstrap.py
-    #   2.4 compile the given program and exec it with locals and globals
-    #   2.5 signal the other child proc to clean up when run to completion
-        return
+        #   2.1 Popen the program through bootstrap.py and custom CPython build
+        #     2.1.1 add tracing flags to various alloc functions, e.g. gc, raw
+        #     2.1.2 write data to files after allocation, e.g. realloc, new_arena
+        #   2.2 patch necessary functions in bootstrap.py, e.g. os.fork
+        #   2.3 register line-level (0.01s) signals in bootstrap.py
+        #   2.4 compile the given program and exec it with locals and globals
+        #   2.5 signal the other child proc to clean up when run to completion
+        return start_bootstrap(sentinel_pid, args)
     # 3. clean up and save the data in trace.dat
     os.waitpid(pid, 0)
     #   3.1 group data (line-of-code, page faults, etc.) into a data structure
