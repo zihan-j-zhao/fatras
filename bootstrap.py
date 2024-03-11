@@ -1,10 +1,74 @@
 import os
 import sys
+import time
+import atexit
 import signal
+import inspect
 import argparse
 
+
+_cwd = os.getcwd()
 _original_fork = os.fork
 _pid_file = '/tmp/fatras/pids.txt'  # agreed to write to this file
+_frame_file = '/tmp/fatras/frames.txt'
+_frame_file_handle = None
+
+
+#################################################
+#
+# Line-level Tracing
+#
+#################################################
+
+
+def fwrite_frame(frame):
+    global _frame_file_handle
+    if not _frame_file_handle:
+        open(_frame_file, 'w+').close()  # create and empty the file
+        _frame_file_handle = open(_frame_file, 'a+')
+        atexit.register(lambda: _frame_file_handle.close())  # close file at exit
+
+    lineno = inspect.getlineno(frame)
+    filename = inspect.getfile(frame)
+    timestamp = time.monotonic_ns()
+
+    _frame_file_handle.write(f'{lineno},{timestamp},{filename}\n')
+
+
+def should_trace(frame):
+    """
+    Returns True if the current frame or one of the frames on the stack trace
+    corresponds to code in files under the initial current working directory.
+    False otherwise.
+    """
+    if frame is None:
+        return False
+
+    # TODO: maybe allow regex match with command-line input
+    return inspect.getframeinfo(frame).filename.startswith(_cwd)
+
+
+def trace(signum, frame):
+    """
+    Writes line-level tracing to file whenever signalled to do so.
+    """
+    # find the closest frame of interest
+    while frame is not None and not should_trace(frame):
+        frame = frame.f_back
+
+    # ignore this frame
+    if frame is None:
+        return
+
+    # write frame info to file
+    fwrite_frame(frame)
+
+
+#################################################
+#
+# Bootstrap
+#
+#################################################
 
 
 def fwrite_pids(ppid, pid):
@@ -24,9 +88,12 @@ def replacement_fork():
     if pid:
         fwrite_pids(os.getpid(), pid)
     else:
-        # 2. start line-level profiling (lieno, code, file)
-        # 3. register stop-profile function atexit
-        pass
+        # 2. start line-level tracing
+        signal.signal(signal.SIGVTALRM, trace)
+        signal.setitimer(signal.ITIMER_VIRTUAL, 0.01, 0.01)
+
+        # 3. register stop-trace function atexit
+        atexit.register(lambda: signal.signal(signal.SIGVTALRM, signal.SIG_DFL))
     return pid
 
 
