@@ -96,18 +96,18 @@ def fwrite_pids(ppid, pid):
     Writes pids to file as a way to share data across processes.
     """
     with open(_pid_file, 'a+') as f:
-        f.write(f'{ppid},{pid}\n')
+        f.write(f'{ppid},{pid},{time.monotonic_ns()}\n')
 
 
 def replacement_fork():
     """
     Patches the system fork to insert tracing functionalities.
     """
-    # 1. write pid to file (ppid, pid)
     pid = _original_fork()
-    if pid:
-        fwrite_pids(os.getpid(), pid)
-    else:
+    if not pid:
+        # 1. write pid to file (ppid, pid)
+        fwrite_pids(os.getppid(), os.getpid())
+
         # 2. start line-level tracing
         signal.signal(signal.SIGVTALRM, trace)
         signal.setitimer(signal.ITIMER_VIRTUAL, 0.01, 0.01)
@@ -147,7 +147,7 @@ def start_process(args):
         # execute the target program (os.fork is patched)
         # it is required to have a main function without args
         # TODO: add more error handling
-        sys.path.insert(1, os.path.dirname(os.path.realpath(prog)))
+        sys.path.insert(0, os.path.dirname(os.path.realpath(prog)))
         code = importlib.import_module(prog.split('.')[0])
         if not hasattr(code, 'main'):
             raise ImportError(f'{prog} does not have a main function')
@@ -155,7 +155,7 @@ def start_process(args):
 
         # wait for all child procs to completion
         while True: os.wait()
-    except ChildProcessError as e:  # expect to happen
+    except ChildProcessError as e:  # expect to happen (maybe not)
         print('all child processes terminated normally')
     finally:
         # signal to stop ftrace in parent
