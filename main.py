@@ -39,7 +39,7 @@ def add_command_record(parser):
 
     # optional
     record_parser.add_argument(
-        '--no-children',
+        '--ignore-children',
         action='store_true',
         default=False,
         help='ignore all child processes spawned',
@@ -82,7 +82,7 @@ def add_command_record(parser):
         type=int,
     )
 
-    # record_parser.set_defaults(func=handle_record)
+    record_parser.set_defaults(handler=handle_record)
 
 
 def add_command_report(parser):
@@ -148,3 +148,4 @@ if __name__ == '__main__':
 
     args = parser.parse_args()
     print(args)
+    args.handler(args)

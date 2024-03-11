@@ -12,7 +12,7 @@ def fwrite_pids(ppid, pid):
     Writes pids to file as a way to share data across processes.
     """
     with open(_pid_file, 'a+') as f:
-        f.write(f'{ppid},{pid}')
+        f.write(f'{ppid},{pid}\n')
 
 
 def replacement_fork():
@@ -24,7 +24,7 @@ def replacement_fork():
     if pid:
         fwrite_pids(os.getpid(), pid)
     else:
-        # 2. start line-level profiling
+        # 2. start line-level profiling (lieno, code, file)
         # 3. register stop-profile function atexit
         pass
     return pid
@@ -39,13 +39,14 @@ def start_process(args):
     exceptions, the signals will always be sent to ensure the states of ftrace
     are managed safely adn correctly.
     """
+    bootstrap_pid = os.getpid()
     prog = args.program[0]
     if not os.path.exists(prog):
         raise FileNotFoundError(prog)
 
     # write the "parent" pid to file first
     with open(_pid_file, 'w+') as f:
-        f.write(f'{os.getpid()}\n')
+        f.write(f'{bootstrap_pid}\n')
 
     # prepare the execution environment
     # TODO: any more vars to be patched?
@@ -64,8 +65,9 @@ def start_process(args):
     except ChildProcessError as e:  # expect to happen
         print('all child processes terminated normally')
     finally:
-        # signal to stop ftrace
-        os.kill(args.sentinel_pid, signal.SIGUSR2)
+        # signal to stop ftrace in parent
+        if bootstrap_pid == os.getpid():
+            os.kill(args.sentinel_pid, signal.SIGUSR2)
 
 
 if __name__ == '__main__':
@@ -77,7 +79,6 @@ if __name__ == '__main__':
     # required
     parser.add_argument(
         'sentinel_pid',
-        nargs=1,
         help='the pid of the sentinel process',
         type=int,
     )

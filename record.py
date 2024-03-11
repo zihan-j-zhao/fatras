@@ -1,6 +1,7 @@
 import os
 import sys
 import time
+import atexit
 import signal
 import subprocess
 
@@ -42,21 +43,20 @@ def reset_ftrace():
     Resets ftrace tracing completely - clearing out all tracing settings and
     disabling everything.
 
-    @see: https://man7.org/linux/man-pages/man1/trace-cmd-reset.1.html
+    @see: https://docs.kernel.org/trace/ftrace.html
+    @see (deprecated): https://man7.org/linux/man-pages/man1/trace-cmd-reset.1.html
     """
     if not is_linux():
         raise OSError('platform not supported, Linux required')
 
     if not exist_ftrace():
-        raise OSError(f'{_ftrace_path} not existed, have you installed the tool trace-cmd?')
+        raise FileNotFoundError(f'{_ftrace_path}, try `mount -t tracefs nodev /sys/kernel/tracing`')
 
-    if not exist_trace_cmd():
-        raise OSError('ool not available, please install trace-cmd')
-
-    try:
-        subprocess.call(['trace-cmd', 'reset'])
-    except OSError as e:
-        raise OSError(e.strerror, 'Are you running in sudo mode?')
+    fwrite(os.path.join(_ftrace_path, 'tracing_on'), '0')
+    fwrite(os.path.join(_ftrace_path, 'trace_clock'), 'local')
+    fwrite(os.path.join(_ftrace_path, 'options/event-fork'), '0')
+    fwrite(os.path.join(_ftrace_path, 'events/exceptions/page_fault_user/enable'), '0')
+    fwrite(os.path.join(_ftrace_path, 'set_event_pid'), '')
 
 
 def setup_ftrace(ignore_children=False):
@@ -69,9 +69,9 @@ def setup_ftrace(ignore_children=False):
 
     # set up page fault configurations
     fwrite(os.path.join(_ftrace_path, 'trace_clock'), 'mono')  # in microseconds
-    fwrite(os.path.join(_ftrace_path, 'set_event'), 'page_fault_user')
-    fwrite(os.path.join(_ftrace_path, 'buffer_size_kb'), 100)
-    fwrite(os.path.join(_ftrace_path, 'options/event-fork'), int(not ignore_children))
+    fwrite(os.path.join(_ftrace_path, 'events/exceptions/page_fault_user/enable'), '1')
+    fwrite(os.path.join(_ftrace_path, 'buffer_size_kb'), '1024')
+    fwrite(os.path.join(_ftrace_path, 'options/event-fork'), str(int(not ignore_children)))
     # fwrite(os.path.join(_ftrace_path, 'set_event_pid'), '???')  # set in start_sentinel
     # fwrite(os.path.join(_ftrace_path, 'tracing_on'), '1')  # set in start_sentinel
 
@@ -120,12 +120,12 @@ def start_sentinel():
             return
         _disabled = True
         fwrite(os.path.join(_ftrace_path, 'tracing_on'), '0')
-        reset_ftrace()
-        print('ftrace has stopped and reset')
+        print('ftrace has stopped')
 
+    open(_trace_file, 'w+').close()  # create an empty file or clear old data
     signal.signal(signal.SIGUSR1, enable_ftrace)
     signal.signal(signal.SIGUSR2, disable_ftrace)
-    open(_trace_file, 'w+').close()  # create an empty file or clear old data
+    atexit.register(reset_ftrace)  # clean up
 
     while not _enabled:
         time.sleep(.5)  # wait a bit
@@ -133,11 +133,11 @@ def start_sentinel():
     with open(os.path.join(_ftrace_path, 'trace_pipe'), 'r') as f_from:
         with open(_trace_file, 'a+') as f_to:
             while True:
-                data = f_from.read()
-                if len(data) == 0:
+                line = f_from.readline()
+                if not line:
                     print('ftrace data have been saved')
                     break
-                f_to.write(data)
+                f_to.write(line)
 
 
 def start_bootstrap(sentinel_pid, args):
@@ -171,4 +171,4 @@ def handle_record(args):
     os.waitpid(pid, 0)
     #   3.1 group data (line-of-code, page faults, etc.) into a data structure
     #   3.2 serialize the data in binary to the output file (e.g. trace.dat)
-    pass
+    return
