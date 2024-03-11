@@ -3,11 +3,13 @@ import sys
 import time
 import atexit
 import signal
+import pathlib
 import inspect
 import argparse
+import importlib
 
 
-_cwd = os.getcwd()
+_base = os.path.dirname(__file__)
 _original_fork = os.fork
 _pid_file = '/tmp/fatras/pids.txt'  # agreed to write to this file
 _frame_file = '/tmp/fatras/frames.txt'
@@ -22,6 +24,12 @@ _frame_file_handle = None
 
 
 def fwrite_frame(frame):
+    """
+    Writes frame info to file. If the file does not exist, this function
+    creates it; if it already exists, this function empties it. For performance
+    considerations, this function opens the file at the beginning and closes it
+    at program exit automatically.
+    """
     global _frame_file_handle
     if not _frame_file_handle:
         open(_frame_file, 'w+').close()  # create and empty the file
@@ -35,33 +43,45 @@ def fwrite_frame(frame):
     _frame_file_handle.write(f'{lineno},{timestamp},{filename}\n')
 
 
-def should_trace(frame):
+def should_trace(filename):
     """
     Returns True if the current frame or one of the frames on the stack trace
     corresponds to code in files under the initial current working directory.
-    False otherwise.
+    False otherwise. Code is adapted from Scalene's scalene_profiler.py.
+
+    @see: https://github.com/plasma-umass/scalene
     """
-    if frame is None:
+    if not filename:
         return False
 
+    # exclude any tracer files, such as bootstrap.py
+    if _base in filename:
+        return False
+
+    # exclude any library files
+    try:
+        resolved_filename = str(pathlib.Path(filename).resolve())
+    except OSError:
+        return False
+
+    # allow all others
     # TODO: maybe allow regex match with command-line input
-    return inspect.getframeinfo(frame).filename.startswith(_cwd)
+    return True
 
 
 def trace(signum, frame):
     """
-    Writes line-level tracing to file whenever signalled to do so.
+    Writes line-level tracing to file whenever signalled to do so. Code is
+    adapted from Scalene's scalene_profiler.py.
+
+    @see: https://github.com/plasma-umass/scalene
     """
     # find the closest frame of interest
-    while frame is not None and not should_trace(frame):
+    while frame:
+        if should_trace(frame.f_code.co_filename):
+            # write frame info to file
+            fwrite_frame(frame)
         frame = frame.f_back
-
-    # ignore this frame
-    if frame is None:
-        return
-
-    # write frame info to file
-    fwrite_frame(frame)
 
 
 #################################################
@@ -125,7 +145,13 @@ def start_process(args):
 
     try:
         # execute the target program (os.fork is patched)
-        exec(open(prog, 'r').read(), globals(), locals())
+        # it is required to have a main function without args
+        # TODO: add more error handling
+        sys.path.insert(1, os.path.dirname(os.path.realpath(prog)))
+        code = importlib.import_module(prog.split('.')[0])
+        if not hasattr(code, 'main'):
+            raise ImportError(f'{prog} does not have a main function')
+        code.main()
 
         # wait for all child procs to completion
         while True: os.wait()

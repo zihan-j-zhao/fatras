@@ -145,7 +145,8 @@ def start_bootstrap(sentinel_pid, args):
     Bootstraps the given program and runs it. This function waits until the
     program completes so that data aggregation may begin.
     """
-    command = [args.python[0], 'bootstrap.py', str(sentinel_pid), *args.program]
+    bootstrap_path = os.path.join(os.path.dirname(__file__), 'bootstrap.py')
+    command = [args.python[0], bootstrap_path, str(sentinel_pid), *args.program]
     subprocess.check_call(command, timeout=max(args.timeout, 0) or _max_timeout)
 
 
