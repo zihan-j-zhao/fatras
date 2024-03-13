@@ -49,7 +49,7 @@ def add_command_record(parser):
     record_parser.add_argument(
         '-o', '--output',
         nargs=1,
-        default='trace.dat',
+        default='trace.json',
         help='the file that saves recorded page fault stats',
         type=str,
     )
