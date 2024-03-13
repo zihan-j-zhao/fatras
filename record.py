@@ -5,9 +5,13 @@ import atexit
 import signal
 import subprocess
 
+import data
+
+
 _ftrace_path = '/sys/kernel/tracing'
 _pid_file = '/tmp/fatras/pids.txt'
 _trace_file = '/tmp/fatras/trace.txt'
+_frame_file = '/tmp/fatras/frames.txt'  # used in bootstrap.py
 
 _max_timeout = 60 * 60  # 1 hour
 
@@ -122,6 +126,8 @@ def start_sentinel():
         fwrite(os.path.join(_ftrace_path, 'tracing_on'), '0')
         print('ftrace has stopped')
 
+    if not os.path.exists(os.path.dirname(_trace_file)):
+        os.makedirs(os.path.dirname(_trace_file))
     open(_trace_file, 'w+').close()  # create an empty file or clear old data
     signal.signal(signal.SIGUSR1, enable_ftrace)
     signal.signal(signal.SIGUSR2, disable_ftrace)
@@ -172,4 +178,8 @@ def handle_record(args):
     os.waitpid(pid, 0)
     #   3.1 group data (line-of-code, page faults, etc.) into a data structure
     #   3.2 serialize the data in binary to the output file (e.g. trace.dat)
-    return
+    faults = data.PageFault.from_trace(_trace_file)
+    forks = data.ForkEvent.from_pids(_pid_file)
+    frames = data.FrameTrace.from_frame(_frame_file)
+    root = read_ppid()
+    data.Data(faults, forks, frames, root).save(args.output)
