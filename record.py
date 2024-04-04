@@ -5,7 +5,6 @@ import atexit
 import signal
 import subprocess
 
-# import data
 import common
 
 
@@ -53,7 +52,6 @@ def reset_ftrace():
     fwrite(os.path.join(_ftrace_path, 'tracing_on'), '0')
     fwrite(os.path.join(_ftrace_path, 'trace_clock'), 'local')
     fwrite(os.path.join(_ftrace_path, 'options/event-fork'), '0')
-    fwrite(os.path.join(_ftrace_path, 'events/exceptions/page_fault_user/enable'), '0')
     fwrite(os.path.join(_ftrace_path, 'set_event_pid'), '')
 
 
@@ -65,10 +63,16 @@ def setup_ftrace(ignore_children=False):
     # reset ftrace
     reset_ftrace()
 
+    # kprobe events
+    kprobe_arg = 'p:probe_fault_args handle_mm_fault address=%si flag=%dx'
+    kprobe_ret = 'r:probe_fault_ret handle_mm_fault ret=$retval'
+    kprobe_events = f'{kprobe_arg}\n{kprobe_ret}\n'
+
     # set up page fault configurations
     fwrite(os.path.join(_ftrace_path, 'trace_clock'), 'mono')  # in microseconds
-    fwrite(os.path.join(_ftrace_path, 'events/exceptions/page_fault_user/enable'), '1')
-    fwrite(os.path.join(_ftrace_path, 'buffer_size_kb'), '1024')
+    fwrite(os.path.join(_ftrace_path, 'kprobe_events'), kprobe_events)
+    fwrite(os.path.join(_ftrace_path, 'events/kprobes/enable'), '1')
+    fwrite(os.path.join(_ftrace_path, 'buffer_size_kb'), '10240')  # 10MB
     fwrite(os.path.join(_ftrace_path, 'options/event-fork'), str(int(not ignore_children)))
     # fwrite(os.path.join(_ftrace_path, 'set_event_pid'), '???')  # set in start_sentinel
     # fwrite(os.path.join(_ftrace_path, 'tracing_on'), '1')  # set in start_sentinel
