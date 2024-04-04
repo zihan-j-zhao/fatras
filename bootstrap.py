@@ -44,7 +44,7 @@ def fwrite_frame(frame, pid, fid):
     _frame_file_handle.write(f'{pid},{fid},{lineno},{timestamp},{filename}\n')
 
 
-def should_trace(filename):
+def should_trace(filename, lib=False):
     """
     Returns True if the current frame or one of the frames on the stack trace
     corresponds to code in files under the initial current working directory.
@@ -60,9 +60,13 @@ def should_trace(filename):
         return False
 
     # exclude any library files
-    try:
-        resolved_filename = str(pathlib.Path(filename).resolve())
-    except OSError:
+    if not lib:
+        for path in sys.path[1:]:
+            if path in filename or type(filename) != str:
+                return False
+
+    # exclude frozen imports
+    if type(filename) == str and filename.startswith('<'):
         return False
 
     # allow all others
