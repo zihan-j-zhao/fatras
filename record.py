@@ -5,7 +5,8 @@ import atexit
 import signal
 import subprocess
 
-import data
+# import data
+import common
 
 
 _ftrace_path = '/sys/kernel/tracing'
@@ -170,9 +171,9 @@ def handle_record(args):
     # 3. clean up and save the data in trace.dat
     os.waitpid(pid, 0)
     #   3.1 group data (line-of-code, page faults, etc.) into a data structure
-    #   3.2 serialize the data in binary to the output file (e.g. trace.dat)
-    faults = data.PageFault.from_trace(_trace_file)
-    forks = data.ForkEvent.from_pids(_pid_file)
-    frames = data.FrameTrace.from_frame(_frame_file)
+    #   3.2 serialize the data in json to the output file (e.g. trace.json)
+    faults = common.FaultParser(_trace_file)
+    frames = common.FrameParser(_frame_file)
+    procs = common.ProcParser(_pid_file)
     root = read_ppid()
-    data.Data(faults, forks, frames, root).save(args.output)
+    common.TraceOutput(faults, procs, frames, read_ppid()).save(args.output)

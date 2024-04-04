@@ -65,25 +65,41 @@ class FaultUtils:
         """
         if not cls.should_trace(ret, flags):
             raise ValueError(f'should not trace this fault with ret={hex(ret)} and flags={hex(flags)}')
-        return not cls.is_major(ret, flags) and (bool(flags & (cls.FAULT_FLAG_WRITE | cls.FAULT_FLAG_USER))
-                                                 or bool(ret & cls.VM_FAULT_DONE_COW))
+        if cls.is_major(ret, flags):
+            raise ValueError(f'invalid minor fault (should be major)')  # should not come here
+        return bool(flags & (cls.FAULT_FLAG_WRITE | cls.FAULT_FLAG_USER)) \
+            or bool(ret & cls.VM_FAULT_DONE_COW)
 
 
 class Fault:
+    """Fault data class
+
+    This class contains all the information needed of a page fault for analysis.
+    """
     def __init__(self):
-        self.pid = -1
-        self.cpu = -1
-        self.timestamp = -1
-        self.address = -1
-        self.flags = 0
-        self.ret = 0
-        self.type = None
+        self.pid = -1        # process id
+        self.cpu = -1        # cpu id
+        self.timestamp = -1  # timestamp in microseconds
+        self.address = -1    # faulting address
+        self.flags = 0       # fault flags
+        self.ret = 0         # page fault handler's return value
+        self.type = None     # type of page fault
 
     def is_valid(self):
+        """
+        Checks if this fault instance contains valid information.
+        """
         return (self.pid != -1 and self.cpu != -1 and self.timestamp != -1
                 and self.address != -1 and self.type is not None)
 
     def test_type(self):
+        """
+        Assigns the proper type to this fault instance given the information.
+        - 'ignore' means the fault should be simply ignored.
+        - 'maj' means a major page fault.
+        - 'cow' means a COW minor page fault.
+        - 'min' means a reqular minor page fault.
+        """
         if self.is_valid():
             if not FaultUtils.should_trace(self.ret, self.flags):
                 self.type = 'ignore'
@@ -93,6 +109,8 @@ class Fault:
                 self.type = 'cow'
             else:
                 self.type = 'min'
+        else:
+            self.type = None
 
 
 class FaultParser:
@@ -109,7 +127,7 @@ class FaultParser:
         _faults = []
         with open(self._filepath, 'r') as f:
             for line in f.readlines():
-                line = line.strip()
+                line = line.strip('\n')
                 r = re.search(self._arg_expr, line)
                 if r is not None:
                     flt = Fault()
@@ -131,4 +149,87 @@ class FaultParser:
                     else:
                         print(f'found a dangling ret line: {line}')  # should never reach here
         return _faults
+
+
+class Frame:
+    def __init__(self):
+        self.pid = -1
+        self.fid = -1
+        self.lineno = -1
+        self.timestamp = -1
+        self.filename = None
+
+    def is_valid(self):
+        return (self.pid != -1 and self.fid != -1 and self.lineno != -1 and
+                self.timestamp != -1 and self.filename is not None)
+
+
+class FrameParser:
+    def __init__(self, filepath):
+        if not os.path.exists(filepath):
+            raise FileNotFoundError(f'{filepath} does not exist')
+        self._filepath
+
+    def parse(self):
+        frames = []
+        with open(self._filepath, 'r') as f:
+            for line in f.readlines():
+                line = line.strip('\n')
+                toks = line.split(',')
+                fr = Frame()
+                fr.pid = int(toks[0])
+                fr.fid = int(toks[1])
+                fr.lineno = int(toks[2])
+                fr.timestamp = int(toks[3] / 1000)
+                fr.filename = toks[4]
+                frames.append(fr)
+        return frames
+
+
+class Proc:
+    def __init__(self):
+        self.pid = -1
+        self.ppid = -1
+        self.timestamp = -1
+        self.type = None
+
+    def is_valid(self):
+        return (self.pid > -1 and self.ppid > -1 and self.timestamp > -1 and
+                self.type is not None)
+
+
+class ProcParser:
+    def __init__(self, filepath):
+        if not os.path.exists(filepath):
+            raise FileNotFoundError(f'{filepath} does not exist')
+        self._filepath
+
+    def parse(self):
+        procs = []
+        skip_first = False
+        with open(self._filepath, 'r') as f:
+            for line in f.readlines():
+                if not skip_first:
+                    skip_first = True
+                    continue
+
+                line = line.strip('\n')
+                toks = line.split(',')
+                pr = Proc()
+                pr.pid = int(toks[1])
+                pr.ppid = int(toks[0])
+                pr.timestamp = int(toks[3] / 1000)
+                procs.append(pr)
+        return procs 
+
+
+class TraceOutput:
+    def __init__(self, faults, procs, frames, root_pid):
+        self.procs = {'root': root_pid, 'rels': procs}
+        self.faults = faults
+        self.frames = frames
+
+    def save(self, file):
+        with open(file, 'w') as f:
+            json.dump(self, f, default=lambda o: o.__dict__, indent=4)
 
