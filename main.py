@@ -104,7 +104,7 @@ def add_command_report(parser):
     report_parser.add_argument(
         '-i', '--input',
         nargs=1,
-        default='trace.dat',
+        default='trace.json',
         help='the data file produced by the record command',
         type=str,
     )

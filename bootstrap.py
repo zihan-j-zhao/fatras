@@ -14,6 +14,7 @@ _original_fork = os.fork
 _pid_file = '/tmp/fatras/pids.txt'  # agreed to write to this file
 _frame_file = '/tmp/fatras/frames.txt'
 _frame_file_handle = None
+_fid = 0
 
 
 #################################################
@@ -23,7 +24,7 @@ _frame_file_handle = None
 #################################################
 
 
-def fwrite_frame(frame):
+def fwrite_frame(frame, pid, fid):
     """
     Writes frame info to file. If the file does not exist, this function
     creates it; if it already exists, this function empties it. For performance
@@ -40,7 +41,7 @@ def fwrite_frame(frame):
     filename = inspect.getfile(frame)
     timestamp = time.monotonic_ns()
 
-    _frame_file_handle.write(f'{lineno},{timestamp},{filename}\n')
+    _frame_file_handle.write(f'{pid},{fid},{lineno},{timestamp},{filename}\n')
 
 
 def should_trace(filename):
@@ -77,11 +78,15 @@ def trace(signum, frame):
     @see: https://github.com/plasma-umass/scalene
     """
     # find the closest frame of interest
+    global _fid
+    _pid = os.getpid()
     while frame:
         if should_trace(frame.f_code.co_filename):
             # write frame info to file
-            fwrite_frame(frame)
+            fwrite_frame(frame, _pid, _fid)
         frame = frame.f_back
+
+    _fid += 1
 
 
 #################################################

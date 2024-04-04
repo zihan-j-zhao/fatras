@@ -35,13 +35,6 @@ def exist_ftrace():
     return os.path.exists(_ftrace_path)
 
 
-def exist_trace_cmd():
-    """
-    Checks if the trace-cmd tool is installed.
-    """
-    return subprocess.call(['which', 'trace-cmd']) == 0
-
-
 def reset_ftrace():
     """
     Resets ftrace tracing completely - clearing out all tracing settings and
