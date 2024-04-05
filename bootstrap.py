@@ -62,7 +62,7 @@ def should_trace(filename, lib=False):
     # exclude any library files
     if not lib:
         for path in sys.path[1:]:
-            if path in filename or type(filename) is str:
+            if path in filename or type(filename) is not str:
                 return False
 
     # exclude frozen imports

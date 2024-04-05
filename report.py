@@ -67,14 +67,17 @@ def count_faults_by_types(faults):
     return cow, min, maj
 
 
-def serialize_memo_by_pid(pid, memo, output='output.csv'):
+def serialize_memo_by_pid(pid, memo, output='output.txt'):
     filename = f'{pid}_{output}'
     open(filename, 'w+').close()
 
     with (open(filename, 'a+') as f):
+        first_line = f"{'PID':<10},{'cpus':<10},{'cow':<10},{'min':<10},{'maj':<10},{'lineno':<7},{'filename'}\n"
+        f.write(first_line)
         for _, frame in memo.items():
-            line = f"{frame['pid']},{frame['cpus']},{frame['cow']},{frame['min']} \
-                    ,{frame['maj']},{frame['lineno']},{frame['filename']}\n"
+            line = "{:<10},{:<10},{:<10},{:<10},{:<10},{:<7},{}\n" \
+                .format(frame['pid'], str(frame['cpus']), frame['cow'], frame['min'],
+                        frame['maj'], frame['lineno'], frame['filename'])
             f.write(line)
 
 
@@ -94,7 +97,7 @@ def handle_report(args):
         memo['startup']['pid'] = pid
         memo['startup']['cpus'] = get_cpus(startup_faults)
         memo['startup']['lineno'] = -1
-        memo['startup']['filename'] = ''
+        memo['startup']['filename'] = 'startup'
         memo['startup']['cow'], memo['startup']['min'], memo['startup']['maj'] \
             = count_faults_by_types(startup_faults)
         faults = faults[len(startup_faults):]
@@ -121,19 +124,19 @@ def handle_report(args):
                 memo[key]['cpus'].union(get_cpus(line_faults))
                 cow, min, maj = count_faults_by_types(line_faults)
                 memo[key]['cow'] += cow
-                memo[key]['min'] = min
-                memo[key]['maj'] = maj
+                memo[key]['min'] += min
+                memo[key]['maj'] += maj
 
         faults = faults[skip_len:]
         memo['teardown'] = {}
         memo['teardown']['pid'] = pid
         memo['teardown']['cpus'] = get_cpus(faults)
         memo['teardown']['lineno'] = -1
-        memo['teardown']['filename'] = ''
+        memo['teardown']['filename'] = 'teardown'
         memo['teardown']['cow'], memo['teardown']['min'], memo['teardown']['maj'] \
             = count_faults_by_types(faults)
 
-        memo = sorted(memo.items(), key=lambda x: x[1]['cow'])
+        memo = dict(sorted(memo.items(), key=lambda x: x[1]['cow']))
         serialize_memo_by_pid(pid, memo)
 
     # 2. convert json data into objects
