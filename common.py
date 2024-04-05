@@ -1,5 +1,6 @@
 import os
 import re
+import json
 
 
 class FaultUtils:
@@ -39,7 +40,7 @@ class FaultUtils:
         """
         if bool(ret & cls.VM_FAULT_RETRY):
             return False
-        if bool(flags & cls.VM_FAULT_ERROR):
+        if bool(ret & cls.VM_FAULT_ERROR):
             return False
         return True
 
@@ -60,6 +61,7 @@ class FaultUtils:
         Checks if the minor page fault is a COW fault or a regular "lazy" fault.
 
         TODO: may need to examine whether pte is writable (hard)
+        TODO: flag test incorrect
         @see: https://github.com/torvalds/linux/blob/v6.8/mm/memory.c#L5180
         @see: https://github.com/torvalds/linux/blob/v6.8/mm/memory.c#L4399
         """
@@ -100,21 +102,18 @@ class Fault:
         - 'cow' means a COW minor page fault.
         - 'min' means a reqular minor page fault.
         """
-        if self.is_valid():
-            if not FaultUtils.should_trace(self.ret, self.flags):
-                self.type = 'ignore'
-            elif FaultUtils.is_major(self.ret, self.flags):
-                self.type = 'maj'
-            elif FaultUtils.is_cow(self.ret, self.flags):
-                self.type = 'cow'
-            else:
-                self.type = 'min'
+        if not FaultUtils.should_trace(self.ret, self.flags):
+            self.type = 'ignore'
+        elif FaultUtils.is_major(self.ret, self.flags):
+            self.type = 'maj'
+        elif FaultUtils.is_cow(self.ret, self.flags):
+            self.type = 'cow'
         else:
-            self.type = None
+            self.type = 'min'
 
 
 class FaultParser:
-    _arg_expr = re.compile(r'\-(\d+)\s+\[(\d+)\][\s\.]+(\d+\.\d+):.+address=(\w+) flags=(\w+)')
+    _arg_expr = re.compile(r'\-(\d+)\s+\[(\d+)\][\s\.]+(\d+\.\d+):.+address=(\w+) flag=(\w+)')
     _ret_expr = re.compile(r'\-(\d+)\s+\[(\d+)\][\s\.]+\d+\.\d+:.+ret=(\d+)')
 
     def __init__(self, filepath):
@@ -143,7 +142,7 @@ class FaultParser:
                     pid = int(r.group(1))
                     cpu = int(r.group(2))
                     if _faults[_idx].pid == pid and _faults[_idx].cpu == cpu:
-                        _faults[_idx].ret = int(r.group(1))
+                        _faults[_idx].ret = int(r.group(3))
                         _faults[_idx].test_type()  # determine the type of fault
                         _idx += 1
                     else:
@@ -159,16 +158,12 @@ class Frame:
         self.timestamp = -1
         self.filename = None
 
-    def is_valid(self):
-        return (self.pid != -1 and self.fid != -1 and self.lineno != -1 and
-                self.timestamp != -1 and self.filename is not None)
-
 
 class FrameParser:
     def __init__(self, filepath):
         if not os.path.exists(filepath):
             raise FileNotFoundError(f'{filepath} does not exist')
-        self._filepath
+        self._filepath = filepath
 
     def parse(self):
         frames = []
@@ -180,7 +175,7 @@ class FrameParser:
                 fr.pid = int(toks[0])
                 fr.fid = int(toks[1])
                 fr.lineno = int(toks[2])
-                fr.timestamp = int(toks[3] / 1000)
+                fr.timestamp = int(int(toks[3]) / 1000)
                 fr.filename = toks[4]
                 frames.append(fr)
         return frames
@@ -191,18 +186,13 @@ class Proc:
         self.pid = -1
         self.ppid = -1
         self.timestamp = -1
-        self.type = None
-
-    def is_valid(self):
-        return (self.pid > -1 and self.ppid > -1 and self.timestamp > -1 and
-                self.type is not None)
 
 
 class ProcParser:
     def __init__(self, filepath):
         if not os.path.exists(filepath):
             raise FileNotFoundError(f'{filepath} does not exist')
-        self._filepath
+        self._filepath = filepath
 
     def parse(self):
         procs = []
@@ -218,7 +208,7 @@ class ProcParser:
                 pr = Proc()
                 pr.pid = int(toks[1])
                 pr.ppid = int(toks[0])
-                pr.timestamp = int(toks[3] / 1000)
+                pr.timestamp = int(int(toks[3]) / 1000)
                 procs.append(pr)
         return procs 
 

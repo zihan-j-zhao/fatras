@@ -49,9 +49,13 @@ def reset_ftrace():
     if not exist_ftrace():
         raise FileNotFoundError(f'{_ftrace_path}, try `mount -t tracefs nodev /sys/kernel/tracing`')
 
+    if os.path.exists(os.path.join(_ftrace_path, 'events/kprobes')):
+        fwrite(os.path.join(_ftrace_path, 'events/kprobes/enable'), '0')
+
     fwrite(os.path.join(_ftrace_path, 'tracing_on'), '0')
     fwrite(os.path.join(_ftrace_path, 'trace_clock'), 'local')
     fwrite(os.path.join(_ftrace_path, 'options/event-fork'), '0')
+    # fwrite(os.path.join(_ftrace_path, 'events/exceptions/page_fault_user'), '0')
     fwrite(os.path.join(_ftrace_path, 'set_event_pid'), '')
 
 
@@ -72,6 +76,7 @@ def setup_ftrace(ignore_children=False):
     fwrite(os.path.join(_ftrace_path, 'trace_clock'), 'mono')  # in microseconds
     fwrite(os.path.join(_ftrace_path, 'kprobe_events'), kprobe_events)
     fwrite(os.path.join(_ftrace_path, 'events/kprobes/enable'), '1')
+    # fwrite(os.path.join(_ftrace_path, 'events/exceptions/page_fault_user'), '1')
     fwrite(os.path.join(_ftrace_path, 'buffer_size_kb'), '10240')  # 10MB
     fwrite(os.path.join(_ftrace_path, 'options/event-fork'), str(int(not ignore_children)))
     # fwrite(os.path.join(_ftrace_path, 'set_event_pid'), '???')  # set in start_sentinel
@@ -176,8 +181,7 @@ def handle_record(args):
     os.waitpid(pid, 0)
     #   3.1 group data (line-of-code, page faults, etc.) into a data structure
     #   3.2 serialize the data in json to the output file (e.g. trace.json)
-    faults = common.FaultParser(_trace_file)
-    frames = common.FrameParser(_frame_file)
-    procs = common.ProcParser(_pid_file)
-    root = read_ppid()
+    faults = common.FaultParser(_trace_file).parse()
+    frames = common.FrameParser(_frame_file).parse()
+    procs = common.ProcParser(_pid_file).parse()
     common.TraceOutput(faults, procs, frames, read_ppid()).save(args.output)
