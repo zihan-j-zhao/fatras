@@ -68,8 +68,8 @@ def setup_ftrace(ignore_children=False):
     reset_ftrace()
 
     # kprobe events
-    kprobe_arg = 'p:probe_fault_args handle_mm_fault address=%si flag=%dx'
-    kprobe_ret = 'r:probe_fault_ret handle_mm_fault ret=$retval'
+    kprobe_arg = 'p:probe_fault_args __handle_mm_fault address=%si flag=%dx'
+    kprobe_ret = 'r:probe_fault_ret __handle_mm_fault ret=$retval'
     kprobe_events = f'{kprobe_arg}\n{kprobe_ret}\n'
 
     # set up page fault configurations
