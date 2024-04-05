@@ -108,6 +108,7 @@ class Fault:
 
 
 class FaultParser:
+    _pid_expr = re.compile(r'\-(\d+)\s+')
     _err_expr = re.compile(r'\-(\d+)\s+\[(\d+)\][\s\.d]+(\d+\.\d+):.+address=(\w+).*error_code=(\w+)')
     _arg_expr = re.compile(r'\-(\d+)\s+\[(\d+)\][\s\.]+(\d+\.\d+):.+address=(\w+) flag=(\w+)')
     _ret_expr = re.compile(r'\-(\d+)\s+\[(\d+)\][\s\.]+\d+\.\d+:.+ret=(\d+)')
@@ -135,15 +136,18 @@ class FaultParser:
 
         files = {}
         for pid in pids:
-            file = f'trace_{pid}.tmp'
+            file = f'/tmp/fatras/trace_{pid}.tmp'
             open(file, 'w+').close()  # clear old content
             files[pid] = open(file, 'a+')
 
         with open(f'{self._filepath}', 'r') as f:
             for line in f.readlines():
-                r = re.search(self._err_expr, line)
+                r = re.search(self._pid_expr, line)
                 if r is not None:
-                    files[int(r.group(1))].write(line)
+                    pid = int(r.group(1))
+                    if pid not in files:
+                        continue  # TODO: weird child, not patch-forked
+                    files[pid].write(line)
 
         for pid in pids:
             files[pid].close()
@@ -154,7 +158,7 @@ class FaultParser:
         pids = self.__split_by_pid()
         _faults = []
         for pid in pids:
-            with open(f'trace_{pid}.tmp', 'r') as f:
+            with open(f'/tmp/fatras/trace_{pid}.tmp', 'r') as f:
                 flag = False
                 for line in f.readlines():
                     line = line.strip('\n')
