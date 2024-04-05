@@ -67,8 +67,6 @@ class FaultUtils:
         """
         if not cls.should_trace(ret, flags):
             raise ValueError(f'should not trace this fault with ret={hex(ret)} and flags={hex(flags)}')
-        if cls.is_major(ret, flags):
-            raise ValueError(f'invalid minor fault (should be major)')  # should not come here
         return bool(flags & (cls.FAULT_FLAG_WRITE | cls.FAULT_FLAG_USER)) \
             or bool(ret & cls.VM_FAULT_DONE_COW)
 
