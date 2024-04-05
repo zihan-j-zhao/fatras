@@ -55,7 +55,7 @@ def reset_ftrace():
     fwrite(os.path.join(_ftrace_path, 'tracing_on'), '0')
     fwrite(os.path.join(_ftrace_path, 'trace_clock'), 'local')
     fwrite(os.path.join(_ftrace_path, 'options/event-fork'), '0')
-    # fwrite(os.path.join(_ftrace_path, 'events/exceptions/page_fault_user'), '0')
+    fwrite(os.path.join(_ftrace_path, 'events/exceptions/page_fault_user'), '0')
     fwrite(os.path.join(_ftrace_path, 'set_event_pid'), '')
 
 
@@ -76,7 +76,7 @@ def setup_ftrace(ignore_children=False):
     fwrite(os.path.join(_ftrace_path, 'trace_clock'), 'mono')  # in microseconds
     fwrite(os.path.join(_ftrace_path, 'kprobe_events'), kprobe_events)
     fwrite(os.path.join(_ftrace_path, 'events/kprobes/enable'), '1')
-    # fwrite(os.path.join(_ftrace_path, 'events/exceptions/page_fault_user'), '1')
+    fwrite(os.path.join(_ftrace_path, 'events/exceptions/page_fault_user'), '1')
     fwrite(os.path.join(_ftrace_path, 'buffer_size_kb'), '10240')  # 10MB
     fwrite(os.path.join(_ftrace_path, 'options/event-fork'), str(int(not ignore_children)))
     # fwrite(os.path.join(_ftrace_path, 'set_event_pid'), '???')  # set in start_sentinel

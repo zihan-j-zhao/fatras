@@ -87,12 +87,7 @@ class Fault:
         self.ret = 0         # page fault handler's return value
         self.type = None     # type of page fault
 
-    def is_valid(self):
-        """
-        Checks if this fault instance contains valid information.
-        """
-        return (self.pid != -1 and self.cpu != -1 and self.timestamp != -1
-                and self.address != -1 and self.type is not None)
+        self.error = -1      # error code (specific to x86 arch)
 
     def test_type(self):
         """
@@ -100,19 +95,20 @@ class Fault:
         - 'ignore' means the fault should be simply ignored.
         - 'maj' means a major page fault.
         - 'cow' means a COW minor page fault.
-        - 'min' means a reqular minor page fault.
+        - 'min' means a regular minor page fault.
         """
         if not FaultUtils.should_trace(self.ret, self.flags):
             self.type = 'ignore'
+        elif self.error == 0x7:
+            self.type = 'cow'
         elif FaultUtils.is_major(self.ret, self.flags):
             self.type = 'maj'
-        elif FaultUtils.is_cow(self.ret, self.flags):
-            self.type = 'cow'
         else:
             self.type = 'min'
 
 
 class FaultParser:
+    _err_expr = re.compile(r'\-(\d+)\s+\[(\d+)\][\s\.d]+(\d+\.\d+):.+address=(\w+).*error_code=(\w+)')
     _arg_expr = re.compile(r'\-(\d+)\s+\[(\d+)\][\s\.]+(\d+\.\d+):.+address=(\w+) flag=(\w+)')
     _ret_expr = re.compile(r'\-(\d+)\s+\[(\d+)\][\s\.]+\d+\.\d+:.+ret=(\d+)')
 
@@ -121,32 +117,69 @@ class FaultParser:
             raise FileNotFoundError(f'{filepath} does not exist')
         self._filepath = filepath
 
-    def parse(self):
-        _idx = 0
-        _faults = []
-        with open(self._filepath, 'r') as f:
+    def __split_by_pid(self):
+        from record import _pid_file
+
+        pids = set()
+        with open(_pid_file, 'r') as f:
+            skip_first = False
             for line in f.readlines():
-                line = line.strip('\n')
-                r = re.search(self._arg_expr, line)
-                if r is not None:
-                    flt = Fault()
-                    flt.pid = int(r.group(1))
-                    flt.cpu = int(r.group(2))
-                    flt.timestamp = int(r.group(3).replace('.', ''))
-                    flt.address = hex(int(r.group(4), 16))
-                    flt.flags = hex(int(r.group(5), 16))
-                    _faults.append(flt)
+                if not skip_first:
+                    skip_first = True
                     continue
-                r = re.search(self._ret_expr, line)
+
+                line = line.strip('\n')
+                toks = line.split(',')
+                pids.add(int(toks[0]))
+                pids.add(int(toks[1]))
+
+        files = {}
+        for pid in pids:
+            file = f'trace_{pid}.tmp'
+            open(file, 'w+').close()  # clear old content
+            files[pid] = open(file, 'a+')
+
+        with open(f'{self._filepath}', 'r') as f:
+            for line in f.readlines():
+                r = re.search(self._err_expr, line)
                 if r is not None:
-                    pid = int(r.group(1))
-                    cpu = int(r.group(2))
-                    if _faults[_idx].pid == pid and _faults[_idx].cpu == cpu:
-                        _faults[_idx].ret = int(r.group(3))
-                        _faults[_idx].test_type()  # determine the type of fault
-                        _idx += 1
-                    else:
-                        print(f'found a dangling ret line: {line}')  # should never reach here
+                    files[int(r.group(1))].write(line)
+
+        for pid in pids:
+            files[pid].close()
+
+        return pids
+
+    def parse(self):
+        pids = self.__split_by_pid()
+        _faults = []
+        for pid in pids:
+            with open(f'trace_{pid}.tmp', 'r') as f:
+                flag = False
+                for line in f.readlines():
+                    line = line.strip('\n')
+                    r = re.search(self._err_expr, line)
+                    if r is not None:
+                        flag = True  # align with the first page_fault_user event
+                        flt = Fault()
+                        flt.pid = int(r.group(1))
+                        flt.cpu = int(r.group(2))
+                        flt.timestamp = int(r.group(3).replace('.', ''))
+                        flt.address = hex(int(r.group(4), 16))
+                        flt.error = int(r.group(5), 16)
+                        _faults.append(flt)
+                        continue
+                    if not flag:
+                        continue  # skip the first couple of unaligned traces
+                    r = re.search(self._arg_expr, line)
+                    if r is not None:  # guaranteed to be not None
+                        _faults[-1].flags = int(r.group(5), 16)  # record flags
+                        continue
+                    r = re.search(self._ret_expr, line)
+                    if r is not None: # guaranteed to be not None
+                        _faults[-1].ret = int(r.group(3))  # record return value
+                        _faults[-1].test_type()
+                        continue
         return _faults
 
 
@@ -208,7 +241,7 @@ class ProcParser:
                 pr = Proc()
                 pr.pid = int(toks[1])
                 pr.ppid = int(toks[0])
-                pr.timestamp = int(int(toks[3]) / 1000)
+                pr.timestamp = int(int(toks[2]) / 1000)
                 procs.append(pr)
         return procs 
 
