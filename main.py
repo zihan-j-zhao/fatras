@@ -3,7 +3,9 @@
 # fatras report -i trace.dat --output "[pid]_out.txt"
 
 import argparse
+
 from record import handle_record
+from report import handle_report
 
 
 def add_command_record(parser):
@@ -128,7 +130,7 @@ def add_command_report(parser):
         type=str,
     )
 
-    # report_parser.set_defaults(func=handle_report)
+    report_parser.set_defaults(handler=handle_report)
 
 
 if __name__ == '__main__':
